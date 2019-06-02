@@ -1,4 +1,4 @@
-namespace MonoGame002
+namespace MonoGame003
 
 open Microsoft.Xna.Framework
 open Microsoft.Xna.Framework.Graphics
@@ -90,6 +90,28 @@ module AnimatedSprite =
     let draw (animSprite: AnimatedSprite) (gameTime: GameTime) (sb: SpriteBatch) =
         sb.Draw(animSprite.texture, animSprite.position, Nullable.op_Implicit animSprite.CurrentAnimation.CurrentFrame, Color.White)
 
+[<AutoOpen>]
+module MonoGameExtensions =
+    type Viewport with
+        member this.Center =
+            Vector2(float32 this.Width * 0.5f, float32 this.Height * 0.5f)
+
+type Camera(viewport: Viewport) =       
+    member val WorldToScreen = Matrix.Identity with get, set
+    member val ScreenToWorld = Matrix.Identity with get, set
+    member val Zoom = 1.0f with get, set
+    member val Position = Vector2.Zero with get, set
+    member val Rotation = 0.0f with get, set
+
+    member this.Update (pos:Vector2) =
+        this.Position <- pos
+        this.WorldToScreen <-
+            Matrix.CreateTranslation(Vector3(-pos, 0.0f)) *
+            Matrix.CreateRotationZ(this.Rotation ) *
+            Matrix.CreateScale(Vector3(this.Zoom, this.Zoom, 1.f )) *
+            Matrix.CreateTranslation(Vector3(viewport.Center, 0.f))
+        this.ScreenToWorld <- Matrix.Invert(this.WorldToScreen)
+
 type Game3 () as this =
     inherit Game()
 
@@ -99,6 +121,7 @@ type Game3 () as this =
     let mutable player = Unchecked.defaultof<Sprite>
     let mutable newPlayer = Unchecked.defaultof<AnimatedSprite>
     let mutable playerAnimations = Unchecked.defaultof<_>
+    let mutable camera = Unchecked.defaultof<_>
 
     let (|KeyDown|_|) k (state: KeyboardState) =
         if state.IsKeyDown k then Some() else None
@@ -130,6 +153,7 @@ type Game3 () as this =
                 WalkDown,  Animation.Create(8, 10, frameSize, Point(64, 128))
                 WalkRight, Animation.Create(8, 10, frameSize, Point(64, 192)) ] |> Map.ofList
         playerAnimations <- anims
+        camera <- Camera(this.GraphicsDevice.Viewport)
         base.Initialize()
 
     override this.LoadContent() =
@@ -178,9 +202,7 @@ type Game3 () as this =
                 Vector2(float32 this.GraphicsDevice.Viewport.Width,
                         float32 this.GraphicsDevice.Viewport.Height) - playerSize * 0.5f
             
-            Vector2.Clamp(newPos, minClamp, maxClamp)
-
-        //player <- {player with position = newPosition }       
+            Vector2.Clamp(newPos, minClamp, maxClamp)      
 
         let newAnimation =
             if newPlayer.currentAnimationKey = animationKey then
@@ -194,12 +216,14 @@ type Game3 () as this =
                         currentAnimationKey = animationKey
                         animations = newPlayer.animations |> Map.add animationKey newAnimation }
 
+        camera.Update newPlayer.position
+
         base.Update(gameTime)
 
     override this.Draw (gameTime) =
         this.GraphicsDevice.Clear Color.CornflowerBlue
-        spriteBatch.Begin()
-        //player.Draw(spriteBatch)
+        spriteBatch.Begin(transformMatrix = Nullable.op_Implicit camera.WorldToScreen)
+        player.Draw(spriteBatch)
         AnimatedSprite.draw newPlayer gameTime spriteBatch
         spriteBatch.End()
         base.Draw(gameTime)
